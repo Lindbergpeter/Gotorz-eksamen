@@ -1,0 +1,118 @@
+﻿@using Gotorz.Client.Services
+@using Shared.Models
+@using Shared.Models.AmadeusCityResponse
+@inject PricingService PricingService
+
+<!-- Booking Summary -->
+<div class="booking-summary">
+    <h4>Booking Summary</h4>
+    <div class="summary-content">
+        @if (OutboundFlight != null || ReturnFlight != null || Hotel != null)
+        {            
+            <div class="summary-section">
+                <h5>Selected Flights</h5>
+                <!-- Outbound Flight -->
+                @if (OutboundFlight != null)
+                {
+                    <div class="summary-item">
+                        <strong>Outbound:</strong> @OutboundFlight.Itineraries.FirstOrDefault().Segments.FirstOrDefault().DepartureAirport to
+                        @OutboundFlight.Itineraries.FirstOrDefault().Segments.LastOrDefault().ArrivalAirport
+                        <div class="summary-detail">
+                            <span>Departs: @OutboundFlight.Itineraries.FirstOrDefault().Segments.FirstOrDefault().DepartureTime.ToString("HH:mm (yyyy-MM-dd)")</span>
+                            <span>@OutboundFlight.TotalPrice @OutboundFlight.Currency</span>
+                        </div>
+                    </div>
+                }
+                <!-- Return Flight -->
+                @if (ReturnFlight != null)
+                {
+                    <div class="summary-item">
+                        <strong>Return:</strong> @ReturnFlight.Itineraries.FirstOrDefault().Segments.FirstOrDefault().DepartureAirport to
+                        @ReturnFlight.Itineraries.FirstOrDefault().Segments.LastOrDefault().ArrivalAirport
+                        <div class="summary-detail">
+                            <span>Departs: @ReturnFlight.Itineraries.FirstOrDefault().Segments.FirstOrDefault().DepartureTime.ToString("HH:mm (yyyy-MM-dd)")</span>
+                            <span>@ReturnFlight.TotalPrice @ReturnFlight.Currency</span>
+                        </div>
+                    </div>
+                }
+            </div>
+            <!-- Hotel -->
+            @if (Hotel != null)
+            {
+                <div class="summary-section">
+                    <h5>Selected Hotel</h5>
+                    <div class="summary-item">
+                        <strong>@Hotel.Name</strong>
+                        <div class="summary-detail">
+                            <span>
+                                Period: @Hotel.Offers?.FirstOrDefault()?.CheckInDate.ToShortDateString() to
+                                @Hotel.Offers?.FirstOrDefault()?.CheckOutDate.ToShortDateString()
+                            </span>
+                            <span>
+                                @{
+                                    var offer = Hotel.Offers?.FirstOrDefault();
+                                    var price = offer?.TotalPrice ?? 0;
+                                    var currency = offer?.Currency ?? "EUR";
+
+                                    var eurPrice = currency == "EUR"
+                                    ? price
+                                    : PricingService.ConvertToEUR(price, currency, offer);
+                                }
+                                @eurPrice EUR
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            }
+            <!-- Pricing -->
+            @if (CalculateTotalPrice() > 0)
+            {
+                <div class="summary-total">
+                    <strong>Total Price:</strong> @CalculateTotalPrice() EUR
+                </div>
+            }
+
+            <button class="summary-button"
+                    @onclick="async () => await OnPackageCreated.InvokeAsync()"
+                    disabled="@(!CanCreatePackage())">
+                Complete Package
+            </button>
+        }
+        else
+        {
+            <p>No items selected yet</p>
+            <p class="hint-text">Select flights first, then accommodations to complete the package.</p>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(PackageCreationMessage))
+    {
+        <div class="@(PackageCreationSuccess ? "success-message" : "error-message")">
+            @PackageCreationMessage
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public FlightOffer? OutboundFlight { get; set; }
+    [Parameter] public FlightOffer? ReturnFlight { get; set; }
+    [Parameter] public Hotel? Hotel { get; set; }
+    [Parameter] public DateTime? DepartureDate { get; set; }
+    [Parameter] public DateTime? ReturnDate { get; set; }
+    [Parameter] public int Adults { get; set; }
+    [Parameter] public EventCallback OnPackageCreated { get; set; }
+    [Parameter] public string? PackageCreationMessage { get; set; }
+    [Parameter] public bool PackageCreationSuccess { get; set; }
+    [Parameter] public HotelOffer? HotelOffers { get; set; }
+
+    private bool CanCreatePackage() =>
+        OutboundFlight != null &&
+        (!ReturnDate.HasValue || ReturnFlight != null) &&
+        Hotel != null &&
+        DepartureDate.HasValue;
+
+    private decimal CalculateTotalPrice()
+    {
+        return PricingService.CalculateTotalPrice(OutboundFlight, ReturnFlight, Hotel, HotelOffers);
+    }
+}

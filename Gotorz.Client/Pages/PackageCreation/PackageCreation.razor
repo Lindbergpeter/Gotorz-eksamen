@@ -1,0 +1,219 @@
+﻿@page "/Packages"
+@attribute [Authorize]
+
+@using Microsoft.AspNetCore.Authorization
+@using Shared.Enums
+@using Shared.Models
+@using Client.Services
+@rendermode InteractiveWebAssembly
+@inject HttpClient HttpClient
+@inject ILogger<PackageCreation> Logger
+
+<PageTitle>Create Travel Package</PageTitle>
+
+<h3>Create Travel Package</h3>
+
+<Navbar> </Navbar>
+
+<div class="booking-container">
+	<!-- Top Row: Search Panel and Booking Summary -->
+	<div class="top-row">
+		<div class="search-panel-container">
+			<SearchPanel @ref="searchPanel"
+			OnSearchFlights="SearchFlights"
+			OnSearchHotels="SearchHotels"
+			OnSelectionChanged="HandleSelectionChange" />
+		</div>
+
+		<div class="search-summary-wrapper">
+			<div class="summary-container">
+				<BookingSummary OutboundFlight="selectedOutboundFlight"
+				ReturnFlight="selectedReturnFlight"
+				Hotel="selectedHotel"
+				DepartureDate="departureDate"
+				ReturnDate="returnDate"
+				Adults="adults"
+				OnPackageCreated="CreatePackage"
+				PackageCreationMessage=@packageCreationMessage
+				PackageCreationSuccess="packageCreationSuccess"
+				HotelOffers="hotelOffers" />
+			</div>
+		</div>
+	</div>
+
+	<!-- Bottom Row: Results Panel -->
+	<div class="results-container">
+		<ResultsPanel CurrentSearchMode="currentSearchMode"
+		OutboundFlights="outboundFlights"
+		ReturnFlights="returnFlights"
+		HotelData="hotels"
+		SelectedOutboundFlight="selectedOutboundFlight"
+		SelectedReturnFlight="selectedReturnFlight"
+		SelectedHotel="selectedHotel"
+		OnFlightSelected="@(tuple => SelectFlight(tuple.flight, tuple.isOutbound))"
+		OnHotelSelected="SelectHotel"
+		IsLoadingFlights="isLoadingFlights"
+		IsLoadingHotels="isLoadingHotels"
+		FlightError="flightError"
+		HotelError="hotelError" />
+	</div>
+</div>
+
+@code {
+	private SearchPanel searchPanel;
+	private SearchMode currentSearchMode = SearchMode.None;
+
+	// Flight Data
+	private List<FlightOffer> outboundFlights = new();
+	private List<FlightOffer> returnFlights = new();
+	private FlightOffer? selectedOutboundFlight;
+	private FlightOffer? selectedReturnFlight;
+
+	// Hotel Data
+	private List<Hotel>? hotels;
+	private HotelOffer? hotelOffers;
+	private Hotel? selectedHotel;
+
+	// Search Parameters
+	private DateTime? departureDate;
+	private DateTime? returnDate;
+	private int adults = 1;
+
+	// UI
+	private bool isLoadingFlights = false;
+	private bool isLoadingHotels = false;
+	private bool flightError = false;
+	private bool hotelError = false;
+	private string packageCreationMessage = null;
+	private bool packageCreationSuccess = false;
+
+	// Method to sync search panel values with this component
+	private void HandleSelectionChange()
+	{
+		departureDate = searchPanel.DepartureDate;
+		returnDate = searchPanel.ReturnDate;
+		adults = searchPanel.Adults;
+	}
+
+	// Sets selected flights and hotel
+	private void SelectFlight(FlightOffer flight, bool isOutbound)
+	{
+		if (isOutbound) selectedOutboundFlight = flight;
+		else selectedReturnFlight = flight;
+	}
+
+	private void SelectHotel(Hotel hotel) => selectedHotel = hotel;
+
+	private async Task SearchFlights()
+	{
+		if (!searchPanel.CanSearchFlights) return;
+
+		HandleSelectionChange();
+
+		currentSearchMode = SearchMode.Flights;
+		isLoadingFlights = true;
+		flightError = false;
+
+		try
+		{
+			outboundFlights = await searchPanel.FetchFlightData(isOutbound: true);
+			if (returnDate.HasValue)
+			{
+				returnFlights = await searchPanel.FetchFlightData(isOutbound: false);
+			}
+			else
+			{
+				returnFlights = new List<FlightOffer>();
+			}
+		}
+		catch
+		{
+			flightError = true;
+		}
+		finally
+		{
+			isLoadingFlights = false;
+		}
+	}
+
+	private async Task SearchHotels()
+	{
+		if (!searchPanel.CanSearchHotels) return;
+
+		HandleSelectionChange();
+
+		currentSearchMode = SearchMode.Hotels;
+		isLoadingHotels = true;
+		hotelError = false;
+
+		try
+		{
+			hotels = await searchPanel.FetchHotelData();
+		}
+		catch
+		{
+			hotelError = true;
+		}
+		finally
+		{
+			isLoadingHotels = false;
+		}
+	}
+
+	private async Task CreatePackage()
+	{
+		try
+		{
+			var package = new TravelPackage
+				{
+					OutboundFlight = selectedOutboundFlight,
+					OutboundFlightId = selectedOutboundFlight.Id,
+					ReturnFlight = selectedReturnFlight,
+					ReturnFlightId = selectedReturnFlight.Id,
+					HotelId = selectedHotel.Id,
+					Hotel = selectedHotel,
+					DepartureDate = departureDate.Value,
+					ReturnDate = returnDate ?? DateTime.MinValue,
+					Adults = adults,
+					OriginCity = searchPanel.OriginCityName,
+					DestinationCity = searchPanel.DestinationCityName,
+				};
+
+			var result = await HttpClient.PostAsJsonAsync("api/travelpackage/create", package);
+
+			if (!result.IsSuccessStatusCode)
+			{
+				packageCreationMessage = "Failed to create package";
+				packageCreationSuccess = false;
+				return;
+			}
+
+			packageCreationMessage = "Package created successfully!";
+			packageCreationSuccess = true;
+
+			// Reset selections
+			selectedOutboundFlight = null;
+			selectedReturnFlight = null;
+			selectedHotel = null;
+			currentSearchMode = SearchMode.None;
+
+			// Auto-clear message after 5 seconds
+			_ = ClearMessageAfterDelay();
+		}
+		catch (Exception ex)
+		{
+			// Set error message
+			packageCreationMessage = $"Failed to create package";
+			packageCreationSuccess = false;
+
+			_ = ClearMessageAfterDelay(8000);
+		}
+	}
+
+	private async Task ClearMessageAfterDelay(int delayMs = 5000)
+	{
+		await Task.Delay(delayMs);
+		packageCreationMessage = null; 
+		StateHasChanged();
+	}
+}
